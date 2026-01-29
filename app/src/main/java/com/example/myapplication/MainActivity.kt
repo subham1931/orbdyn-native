@@ -1,6 +1,8 @@
 package com.example.myapplication
 
+import android.content.Context
 import android.os.Bundle
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -113,14 +115,36 @@ class MainActivity : ComponentActivity() {
 }
 
 // --- Navigation State ---
+// --- Session Manager ---
+object SessionManager {
+    private const val PREF_NAME = "user_session"
+    private const val KEY_IS_LOGGED_IN = "is_logged_in"
+
+    fun isLoggedIn(context: Context): Boolean {
+        val pref = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return pref.getBoolean(KEY_IS_LOGGED_IN, false)
+    }
+
+    fun setLoggedIn(context: Context, isLoggedIn: Boolean) {
+        val pref = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        pref.edit().putBoolean(KEY_IS_LOGGED_IN, isLoggedIn).apply()
+    }
+}
+
 enum class Screen {
     Onboarding, SignIn, SignUp, Dashboard, Profile
 }
 
+data class Category(val name: String, val color: Color)
+
 @Composable
 fun AppContent(isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
-    var currentScreen by remember { mutableStateOf(Screen.Onboarding) }
+    val context = LocalContext.current
+    var currentScreen by remember {
+        mutableStateOf(if (SessionManager.isLoggedIn(context)) Screen.Dashboard else Screen.Onboarding)
+    }
     var dashboardPage by remember { mutableStateOf("All Resources") }
+    val categories = remember { mutableStateListOf<Category>() }
 
     // Wrap everything in a Surface to ensure the background follows the theme
     Surface(
@@ -135,29 +159,42 @@ fun AppContent(isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
             Screen.SignIn -> SignInScreen(
                 onBack = { currentScreen = Screen.Onboarding },
                 onSignUp = { currentScreen = Screen.SignUp },
-                onLoginSuccess = { currentScreen = Screen.Dashboard }
+                onLoginSuccess = { 
+                    SessionManager.setLoggedIn(context, true)
+                    currentScreen = Screen.Dashboard 
+                }
             )
             Screen.SignUp -> SignUpScreen(
                 onBack = { currentScreen = Screen.Onboarding },
                 onSignIn = { currentScreen = Screen.SignIn }
             )
             Screen.Dashboard -> DashboardScreen(
-                onSignOut = { currentScreen = Screen.SignIn },
+                onSignOut = { 
+                    SessionManager.setLoggedIn(context, false)
+                    currentScreen = Screen.SignIn 
+                },
                 onProfileClick = { currentScreen = Screen.Profile },
                 isDarkTheme = isDarkTheme,
                 onToggleTheme = onToggleTheme,
                 currentPage = dashboardPage,
-                onPageChanged = { dashboardPage = it }
+                onPageChanged = { dashboardPage = it },
+                categories = categories,
+                onAddCategory = { categories.add(it) }
             )
             Screen.Profile -> ProfileScreen(
                 onBack = { currentScreen = Screen.Dashboard },
-                onSignOut = { currentScreen = Screen.SignIn },
+                onSignOut = { 
+                    SessionManager.setLoggedIn(context, false)
+                    currentScreen = Screen.SignIn 
+                },
                 onNavigateToDashboard = { page ->
                     dashboardPage = page
                     currentScreen = Screen.Dashboard
                 },
                 isDarkTheme = isDarkTheme,
-                onToggleTheme = onToggleTheme
+                onToggleTheme = onToggleTheme,
+                onAddCategory = { categories.add(it) },
+                categories = categories
             )
         }
     }
@@ -535,7 +572,9 @@ fun DashboardScreen(
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
     currentPage: String,
-    onPageChanged: (String) -> Unit
+    onPageChanged: (String) -> Unit,
+    categories: List<Category>,
+    onAddCategory: (Category) -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -547,7 +586,8 @@ fun DashboardScreen(
     if (showAddResourceModal) {
         AddResourceModal(
             onDismiss = { showAddResourceModal = false },
-            initialType = modalInitialType
+            initialType = modalInitialType,
+            categories = categories
         )
     }
 
@@ -556,7 +596,13 @@ fun DashboardScreen(
     }
 
     if (showCreateCategoryModal) {
-        CreateCategoryModal(onDismiss = { showCreateCategoryModal = false })
+        CreateCategoryModal(
+            onDismiss = { showCreateCategoryModal = false },
+            onCategoryCreated = {
+                 onAddCategory(it)
+                 showCreateCategoryModal = false
+            }
+        )
     }
 
     ModalNavigationDrawer(
@@ -575,7 +621,8 @@ fun DashboardScreen(
                     showCreateCategoryModal = true
                 },
                 isDarkTheme = isDarkTheme,
-                onToggleTheme = onToggleTheme
+                onToggleTheme = onToggleTheme,
+                categories = categories
             )
         },
         scrimColor = Color.Black.copy(alpha = 0.5f)
@@ -624,7 +671,8 @@ fun SidebarContent(
     onProfileClick: () -> Unit,
     onCreateCategory: () -> Unit,
     isDarkTheme: Boolean,
-    onToggleTheme: () -> Unit
+    onToggleTheme: () -> Unit,
+    categories: List<Category>
 ) {
     ModalDrawerSheet(
         drawerContainerColor = MaterialTheme.colorScheme.background,
@@ -648,13 +696,41 @@ fun SidebarContent(
         }
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Menu Items
-        SidebarItem(Icons.Default.GridView, "All Resources", selectedItem == "All Resources") { onItemSelected("All Resources") }
-        SidebarItem(Icons.Default.Link, "Links", selectedItem == "Links") { onItemSelected("Links") }
-        SidebarItem(Icons.Default.Description, "Notes", selectedItem == "Notes") { onItemSelected("Notes") }
-        SidebarItem(Icons.Default.CheckBox, "To Do", selectedItem == "To Do") { onItemSelected("To Do") }
-        SidebarItem(Icons.Default.StarBorder, "Favorites", selectedItem == "Favorites") { onItemSelected("Favorites") }
-        SidebarItem(Icons.Default.Inventory2, "Archive", selectedItem == "Archive") { onItemSelected("Archive") }
+            // Dashboard Items
+            SidebarItem(Icons.Default.Dashboard, "All Resources", selectedItem == "All Resources") { onItemSelected("All Resources") }
+            SidebarItem(Icons.Default.Link, "Links", selectedItem == "Links") { onItemSelected("Links") }
+            SidebarItem(Icons.Default.Description, "Notes", selectedItem == "Notes") { onItemSelected("Notes") }
+            SidebarItem(Icons.Default.CheckCircle, "To Do", selectedItem == "To Do") { onItemSelected("To Do") }
+            SidebarItem(Icons.Default.Favorite, "Favorites", selectedItem == "Favorites") { onItemSelected("Favorites") }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp, horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+            // CATEGORIES
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("CATEGORIES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                Icon(
+                    Icons.Default.Add, 
+                    contentDescription = "Add Category", 
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp).clickable { onCreateCategory() }
+                )
+            }
+            
+            categories.forEach { category ->
+                 SidebarItem(
+                     label = category.name, 
+                     isSelected = selectedItem == category.name,
+                     indicatorColor = category.color
+                 ) { onItemSelected(category.name) }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp, horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            
+            SidebarItem(Icons.Default.Inventory2, "Archive", selectedItem == "Archive") { onItemSelected("Archive") }
         
         Spacer(modifier = Modifier.height(16.dp))
         
@@ -666,25 +742,6 @@ fun SidebarContent(
             textColor = DangerRed,
             onClick = { onItemSelected("Recycle Bin") }
         )
-
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Categories Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("CATEGORIES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-            Icon(
-                Icons.Default.Add,
-                contentDescription = "Add Category",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp).clickable { onCreateCategory() }
-            )
-        }
 
         Spacer(modifier = Modifier.weight(1f))
 
@@ -731,18 +788,25 @@ fun SidebarContent(
 
 @Composable
 fun SidebarItem(
-    icon: ImageVector,
+    icon: ImageVector? = null,
     label: String,
     isSelected: Boolean,
     iconColor: Color = Color.Unspecified,
     textColor: Color = Color.Unspecified,
+    indicatorColor: Color? = null,
     onClick: () -> Unit
 ) {
     val finalIconColor = if (iconColor != Color.Unspecified) iconColor else MaterialTheme.colorScheme.onSurfaceVariant
     val finalTextColor = if (textColor != Color.Unspecified) textColor else MaterialTheme.colorScheme.onSurfaceVariant
 
     NavigationDrawerItem(
-        icon = { Icon(icon, contentDescription = null, tint = if (isSelected) PrimaryBlue else finalIconColor) },
+        icon = { 
+            if (indicatorColor != null) {
+                Box(modifier = Modifier.size(12.dp).background(indicatorColor, CircleShape))
+            } else if (icon != null) {
+                Icon(icon, contentDescription = null, tint = if (isSelected) PrimaryBlue else finalIconColor) 
+            }
+        },
         label = { Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
         selected = isSelected,
         onClick = onClick,
@@ -929,7 +993,7 @@ data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val 
 // --- Add Resource Modal (Preserved) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddResourceModal(onDismiss: () -> Unit, initialType: ResourceType = ResourceType.Link) {
+fun AddResourceModal(onDismiss: () -> Unit, initialType: ResourceType = ResourceType.Link, categories: List<Category>) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -938,16 +1002,22 @@ fun AddResourceModal(onDismiss: () -> Unit, initialType: ResourceType = Resource
         contentColor = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.fillMaxHeight(0.95f)
     ) {
-        AddResourceContent(onDismiss, initialType)
+        AddResourceContent(onDismiss, initialType, categories)
     }
 }
 
 enum class ResourceType { Link, Note, Todo }
 
 @Composable
-fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType) {
+fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType, categories: List<Category>) {
     var selectedType by remember { mutableStateOf(initialType) }
     
+    var url by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(if (categories.isNotEmpty()) categories[0].name else "Uncategorized") }
+    var expandedCategory by remember { mutableStateOf(false) }
+
     // Simplify slightly for length, assuming user has previous full version or uses this one
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -961,7 +1031,7 @@ fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType) {
         }
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Reuse previous logic for tabs, inputs etc.
+        // Resource Type Selector
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
            ResourceType.values().forEach { type ->
                 val isSelected = selectedType == type
@@ -993,19 +1063,57 @@ fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType) {
 
         if (selectedType == ResourceType.Link) {
             InputLabel("URL / Link")
-            CustomInput(value = "", onValueChange = {}, icon = Icons.Default.Link, hint = "https://...")
+            CustomInput(value = url, onValueChange = { url = it }, icon = Icons.Default.Link, hint = "https://...")
             Spacer(modifier = Modifier.height(24.dp))
         }
 
         InputLabel("Title")
-        CustomInput(value = "", onValueChange = {}, hint = "What is this about?", trailingIcon = Icons.Default.Mic)
+        CustomInput(value = title, onValueChange = { title = it }, hint = "What is this about?", trailingIcon = Icons.Default.Mic)
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        // Category Dropdown
+        InputLabel("Category")
+        Box(modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(InputBackground)
+            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+            .clickable { expandedCategory = !expandedCategory }
+            .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(selectedCategory, color = TextWhite)
+                Icon(if (expandedCategory) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = TextGrey)
+            }
+            DropdownMenu(
+                expanded = expandedCategory,
+                onDismissRequest = { expandedCategory = false },
+                modifier = Modifier.background(SurfaceDark).fillMaxWidth(0.85f)
+            ) {
+                categories.forEach { category ->
+                    DropdownMenuItem(
+                        text = { Text(category.name, color = TextWhite) },
+                        onClick = {
+                            selectedCategory = category.name
+                            expandedCategory = false
+                        }
+                    )
+                }
+                DropdownMenuItem(text = { Text("Uncategorized", color = TextWhite) }, onClick = { selectedCategory = "Uncategorized"; expandedCategory = false })
+            }
+        }
         Spacer(modifier = Modifier.height(24.dp))
 
         InputLabel("Description (Optional)")
-        CustomInput(value = "", onValueChange = {}, hint = "Brief summary...", singleLine = false, modifier = Modifier.height(80.dp))
+        CustomInput(value = description, onValueChange = { description = it }, hint = "Brief summary...", singleLine = false, modifier = Modifier.height(80.dp))
         Spacer(modifier = Modifier.height(24.dp))
         
-        PrimaryButton("Create Resource", onClick = onDismiss)
+        PrimaryButton("Create Resource", onClick = {
+            // TODO: Handle creation logic with title, url, description, selectedCategory
+            onDismiss()
+        })
         Spacer(modifier = Modifier.height(32.dp))
     }
 }
@@ -1127,14 +1235,22 @@ fun ProfileScreen(
     onSignOut: () -> Unit,
     onNavigateToDashboard: (String) -> Unit,
     isDarkTheme: Boolean,
-    onToggleTheme: () -> Unit
+    onToggleTheme: () -> Unit,
+    onAddCategory: (Category) -> Unit,
+    categories: List<Category>
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showCreateCategoryModal by remember { mutableStateOf(false) }
 
     if (showCreateCategoryModal) {
-        CreateCategoryModal(onDismiss = { showCreateCategoryModal = false })
+        CreateCategoryModal(
+            onDismiss = { showCreateCategoryModal = false },
+            onCategoryCreated = {
+                onAddCategory(it)
+                showCreateCategoryModal = false
+            }
+        )
     }
 
     ModalNavigationDrawer(
@@ -1153,7 +1269,8 @@ fun ProfileScreen(
                     showCreateCategoryModal = true
                 },
                 isDarkTheme = isDarkTheme,
-                onToggleTheme = onToggleTheme
+                onToggleTheme = onToggleTheme,
+                categories = categories
             )
         },
         scrimColor = Color.Black.copy(alpha = 0.5f)
@@ -1367,7 +1484,7 @@ fun FilterSortModal(onDismiss: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateCategoryModal(onDismiss: () -> Unit) {
+fun CreateCategoryModal(onDismiss: () -> Unit, onCategoryCreated: (Category) -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1383,41 +1500,52 @@ fun CreateCategoryModal(onDismiss: () -> Unit) {
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
+            var categoryName by remember { mutableStateOf("") }
+            
             InputLabel("CATEGORY NAME")
-            CustomInput(value = "", onValueChange = {}, hint = "e.g., Work, Personal, Ideas")
+            CustomInput(value = categoryName, onValueChange = { categoryName = it }, hint = "e.g., Work, Personal, Ideas")
             Spacer(modifier = Modifier.height(24.dp))
             InputLabel("THEME COLOR")
             
-            val colors = listOf(Color(0xFFF97316), Color(0xFFEF4444), Color(0xFF22C55E), Color(0xFF3B82F6), Color(0xFFA855F7), Color(0xFFE879F9), Color(0xFF06B6D4), Color(0xFFEAB308))
+            val colors = listOf(
+                Color(0xFFFF7F11), // Orange
+                Color(0xFFEF4444), // Red
+                Color(0xFF22C55E), // Green
+                Color(0xFF3B82F6), // Blue
+                Color(0xFFA855F7), // Purple
+                Color(0xFFE879F9), // Pink
+                Color(0xFF06B6D4), // Cyan
+                Color(0xFFEAB308)  // Yellow
+            )
             var selectedColor by remember { mutableStateOf(colors[0]) }
             
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                colors.take(4).forEach { color ->
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(color, RoundedCornerShape(12.dp))
-                            .clickable { selectedColor = color },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (selectedColor == color) {
-                            Icon(Icons.Default.Check, null, tint = Color.White)
+            Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    colors.take(4).forEach { color ->
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(color, RoundedCornerShape(12.dp))
+                                .clickable { selectedColor = color }
+                                .border(if (selectedColor == color) 2.dp else 0.dp, Color.White, RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selectedColor == color) Icon(Icons.Default.Check, null, tint = Color.White)
                         }
                     }
                 }
-            }
-             Spacer(modifier = Modifier.height(12.dp))
-             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                colors.takeLast(4).forEach { color ->
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(color, RoundedCornerShape(12.dp))
-                            .clickable { selectedColor = color },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (selectedColor == color) {
-                            Icon(Icons.Default.Check, null, tint = Color.White)
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                     colors.drop(4).take(4).forEach { color ->
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(color, RoundedCornerShape(12.dp))
+                                .clickable { selectedColor = color }
+                                .border(if (selectedColor == color) 2.dp else 0.dp, Color.White, RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selectedColor == color) Icon(Icons.Default.Check, null, tint = Color.White)
                         }
                     }
                 }
@@ -1434,7 +1562,13 @@ fun CreateCategoryModal(onDismiss: () -> Unit) {
                     Text("Cancel", fontWeight = FontWeight.Bold)
                 }
                 Button(
-                    onClick = onDismiss,
+                    onClick = {
+                        if (categoryName.isNotEmpty()) {
+                            onCategoryCreated(Category(categoryName, selectedColor))
+                        } else {
+                            onDismiss()
+                        }
+                    },
                      modifier = Modifier.weight(1f).height(56.dp),
                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1B4B), contentColor = PrimaryBlue),
                      shape = RoundedCornerShape(12.dp)
