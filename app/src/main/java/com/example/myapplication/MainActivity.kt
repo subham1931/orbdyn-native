@@ -786,12 +786,26 @@ fun SidebarContent(
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp, horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             // CATEGORIES
+            var isCategoriesExpanded by remember { mutableStateOf(true) }
+            
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isCategoriesExpanded = !isCategoriesExpanded }
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("CATEGORIES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("CATEGORIES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        imageVector = if (isCategoriesExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Toggle Categories",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
                 Icon(
                     Icons.Default.Add, 
                     contentDescription = "Add Category", 
@@ -800,12 +814,20 @@ fun SidebarContent(
                 )
             }
             
-            categories.forEach { category ->
-                 SidebarItem(
-                     label = category.name, 
-                     isSelected = selectedItem == category.name,
-                     indicatorColor = category.color
-                 ) { onItemSelected(category.name) }
+            if (isCategoriesExpanded) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 200.dp) // Specific max height to prevent hiding bottom items
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    categories.forEach { category ->
+                         SidebarItem(
+                             label = category.name, 
+                             isSelected = selectedItem == category.name,
+                             indicatorColor = category.color
+                         ) { onItemSelected(category.name) }
+                    }
+                }
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp, horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
@@ -961,7 +983,8 @@ fun DashboardContent(
         "Favorites" -> Quadruple("Favorites", "No favorites yet", "", ResourceType.Link)
         "Archive" -> Quadruple("All Archived", "Archive is empty", "", ResourceType.Link)
         "Recycle Bin" -> Quadruple("All Deleted", "Recycle Bin is empty", "", ResourceType.Link)
-        else -> Quadruple("All Resources", "No resources yet", "+ Add Resource", ResourceType.Link)
+        "All Resources" -> Quadruple("All Resources", "No resources yet", "+ Add Resource", ResourceType.Link)
+        else -> Quadruple(selectedPage, "No items in $selectedPage", "+ Add to $selectedPage", ResourceType.Link)
     }
 
 
@@ -975,7 +998,7 @@ fun DashboardContent(
             "Favorites" -> resource.isFavorite && !resource.isDeleted && !resource.isArchived
             "Archive" -> resource.isArchived && !resource.isDeleted
             "Recycle Bin" -> resource.isDeleted
-            else -> false // Should not happen based on current navigation logic, but safe fallback
+            else -> resource.category == selectedPage && !resource.isDeleted && !resource.isArchived
         }
     }
 
@@ -1622,6 +1645,73 @@ fun ProfileScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("* Email cannot be changed for security reasons", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+            }
+        }
+        
+        
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Security / Change Password
+        var currentPassword by remember { mutableStateOf("") }
+        var newPassword by remember { mutableStateOf("") }
+        var confirmPassword by remember { mutableStateOf("") }
+
+        Card(
+             modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
+             shape = RoundedCornerShape(24.dp),
+             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background)
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Lock, null, tint = PrimaryBlue, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Security", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                        Text("Update your password", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+
+                InputLabel("CURRENT PASSWORD")
+                AuthInput(
+                    value = currentPassword,
+                    onValueChange = { currentPassword = it },
+                    hint = "••••••••",
+                    icon = Icons.Outlined.Lock,
+                    isPassword = true
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                InputLabel("NEW PASSWORD")
+                AuthInput(
+                    value = newPassword,
+                    onValueChange = { newPassword = it },
+                    hint = "••••••••",
+                    icon = Icons.Outlined.Lock,
+                    isPassword = true
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                InputLabel("CONFIRM NEW PASSWORD")
+                AuthInput(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    hint = "••••••••",
+                    icon = Icons.Outlined.Lock,
+                    isPassword = true
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                PrimaryButton(
+                    text = "Update Password", 
+                    onClick = { /* TODO: Implement password change logic */ },
+                    showArrow = false
+                )
             }
         }
         

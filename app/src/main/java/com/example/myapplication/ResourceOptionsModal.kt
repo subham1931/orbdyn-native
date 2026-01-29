@@ -67,7 +67,7 @@ fun ResourceOptionsModal(
                              ResourceType.Note -> Color(0xFF3B82F6).copy(alpha = 0.1f)
                              ResourceType.Todo -> Color(0xFFA855F7).copy(alpha = 0.1f)
                          }, 
-                         CircleShape
+                          CircleShape
                      ),
                  contentAlignment = Alignment.Center
             ) {

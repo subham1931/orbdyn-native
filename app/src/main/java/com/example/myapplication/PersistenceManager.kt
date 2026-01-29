@@ -3,6 +3,7 @@ package com.example.myapplication
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.compose.ui.graphics.toArgb
 
 object PersistenceManager {
     private const val PREFS_NAME = "app_data"
@@ -76,7 +77,7 @@ object PersistenceManager {
         categories.forEach { category ->
             val jsonObject = JSONObject().apply {
                 put("name", category.name)
-                put("color", category.color.value.toLong().toString()) // Store color as ULong string
+                put("color", category.color.toArgb()) // Save as Int ARGB
             }
             jsonArray.put(jsonObject)
         }
@@ -92,10 +93,11 @@ object PersistenceManager {
             val jsonArray = JSONArray(jsonString)
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                val colorVal = obj.optString("color").toULongOrNull() ?: 0xFF2E65F3UL 
+                // Use safe default color if parsing fails or missing
+                val colorInt = obj.optInt("color", android.graphics.Color.BLUE) 
                 categories.add(Category(
                     name = obj.optString("name"),
-                    color = androidx.compose.ui.graphics.Color(colorVal)
+                    color = androidx.compose.ui.graphics.Color(colorInt)
                 ))
             }
         } catch (e: Exception) {
