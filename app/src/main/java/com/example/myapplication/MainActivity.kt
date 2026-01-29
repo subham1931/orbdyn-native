@@ -7,7 +7,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -54,22 +57,55 @@ val BorderColor = Color(0xFF1F2937)
 val DangerRed = Color(0xFFEF4444)
 val WarningOrange = Color(0xFFF59E0B)
 
+// --- Light Theme Palette ---
+val LightBackground = Color(0xFFF9FAFB)
+val SurfaceLight = Color(0xFFFFFFFF)
+val TextBlack = Color(0xFF111827)
+val TextGreyLight = Color(0xFF6B7280)
+val InputBackgroundLight = Color(0xFFF3F4F6)
+val BorderColorLight = Color(0xFFE5E7EB)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
+            val systemDark = isSystemInDarkTheme()
+            var isDarkTheme by remember { mutableStateOf(systemDark) }
+
+            val darkColorScheme = darkColorScheme(
+                background = DarkBackground,
+                surface = SurfaceDark,
+                primary = PrimaryBlue,
+                onBackground = TextWhite,
+                onSurface = TextWhite,
+                onSurfaceVariant = TextGrey,
+                surfaceVariant = InputBackground,
+                outline = BorderColor
+            )
+
+            val lightColorScheme = lightColorScheme(
+                background = LightBackground,
+                surface = SurfaceLight,
+                primary = PrimaryBlue,
+                onBackground = TextBlack,
+                onSurface = TextBlack,
+                onSurfaceVariant = TextGreyLight,
+                surfaceVariant = InputBackgroundLight,
+                outline = BorderColorLight
+            )
+
+            val colors = if (isDarkTheme) darkColorScheme else lightColorScheme
+
             MyApplicationTheme {
                 MaterialTheme(
-                    colorScheme = darkColorScheme(
-                        background = DarkBackground,
-                        surface = SurfaceDark,
-                        primary = PrimaryBlue,
-                        onBackground = TextWhite,
-                        onSurface = TextWhite
-                    )
+                    colorScheme = colors
                 ) {
-                    AppContent()
+                    // Update Status Bar info if needed, or rely on system
+                    AppContent(
+                        isDarkTheme = isDarkTheme,
+                        onToggleTheme = { isDarkTheme = !isDarkTheme }
+                    )
                 }
             }
         }
@@ -82,13 +118,13 @@ enum class Screen {
 }
 
 @Composable
-fun AppContent() {
+fun AppContent(isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
     var currentScreen by remember { mutableStateOf(Screen.Onboarding) }
 
-    // Wrap everything in a Surface to ensure the background is always Dark
+    // Wrap everything in a Surface to ensure the background follows the theme
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = DarkBackground
+        color = MaterialTheme.colorScheme.background
     ) {
         when (currentScreen) {
             Screen.Onboarding -> OnboardingScreen(
@@ -105,7 +141,9 @@ fun AppContent() {
                 onSignIn = { currentScreen = Screen.SignIn }
             )
             Screen.Dashboard -> DashboardScreen(
-                onSignOut = { currentScreen = Screen.SignIn }
+                onSignOut = { currentScreen = Screen.SignIn },
+                isDarkTheme = isDarkTheme,
+                onToggleTheme = onToggleTheme
             )
         }
     }
@@ -129,7 +167,7 @@ fun OnboardingScreen(onGetStarted: () -> Unit, onSignIn: () -> Unit) {
                 text = "Orbdyn",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = TextWhite
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
         
@@ -151,7 +189,7 @@ fun OnboardingScreen(onGetStarted: () -> Unit, onSignIn: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
 
         val titleText = buildAnnotatedString {
-            withStyle(style = SpanStyle(color = TextWhite)) {
+            withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.onBackground)) {
                 append("Your Personal ")
             }
             withStyle(style = SpanStyle(color = PrimaryBlue)) {
@@ -170,7 +208,7 @@ fun OnboardingScreen(onGetStarted: () -> Unit, onSignIn: () -> Unit) {
         Text(
             text = "A private sanctuary for your bookmarks, notes, and ideas. Organized, accessible, and always secure.",
             style = MaterialTheme.typography.bodyLarge,
-            color = TextGrey
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -204,7 +242,7 @@ fun OnboardingScreen(onGetStarted: () -> Unit, onSignIn: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            Text(text = "Already have an account? ", color = TextGrey)
+            Text(text = "Already have an account? ", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 text = "Sign In",
                 color = PrimaryBlue,
@@ -241,9 +279,9 @@ fun FeatureCard(icon: ImageVector, title: String, desc: String) {
         }
         Spacer(modifier = Modifier.width(16.dp))
         Column {
-            Text(text = title, fontWeight = FontWeight.Bold, color = TextWhite, style = MaterialTheme.typography.titleMedium)
+            Text(text = title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(text = desc, color = TextGrey, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp)
+            Text(text = desc, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp)
         }
     }
 }
@@ -280,13 +318,13 @@ fun SignInScreen(onBack: () -> Unit, onSignUp: () -> Unit, onLoginSuccess: () ->
             text = "Welcome Back",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            color = TextWhite
+            color = MaterialTheme.colorScheme.onBackground
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "Sign in to access your resources and manage your digital life.",
             style = MaterialTheme.typography.bodyMedium,
-            color = TextGrey
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -311,7 +349,7 @@ fun SignInScreen(onBack: () -> Unit, onSignUp: () -> Unit, onLoginSuccess: () ->
             Text(
                 text = "PASSWORD",
                 style = MaterialTheme.typography.labelSmall,
-                color = TextGrey,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Bold
             )
             Text(
@@ -341,7 +379,7 @@ fun SignInScreen(onBack: () -> Unit, onSignUp: () -> Unit, onLoginSuccess: () ->
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            Text(text = "Don't have an account? ", color = TextGrey)
+            Text(text = "Don't have an account? ", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 text = "Sign up",
                 color = PrimaryBlue,
@@ -387,7 +425,7 @@ fun SignUpScreen(onBack: () -> Unit, onSignIn: () -> Unit) {
             text = "Create Account",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            color = TextWhite
+            color = MaterialTheme.colorScheme.onBackground
         )
         Spacer(modifier = Modifier.height(8.dp))
         
@@ -432,7 +470,7 @@ fun SignUpScreen(onBack: () -> Unit, onSignIn: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            Text(text = "Already have an account? ", color = TextGrey)
+            Text(text = "Already have an account? ", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 text = "Sign In",
                 color = PrimaryBlue,
@@ -477,7 +515,7 @@ fun AuthInput(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(onSignOut: () -> Unit) {
+fun DashboardScreen(onSignOut: () -> Unit, isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showAddResourceModal by remember { mutableStateOf(false) }
@@ -500,7 +538,9 @@ fun DashboardScreen(onSignOut: () -> Unit) {
                 onItemSelected = {
                     selectedDashboardPage = it
                     scope.launch { drawerState.close() }
-                }
+                },
+                isDarkTheme = isDarkTheme,
+                onToggleTheme = onToggleTheme
             )
         },
         scrimColor = Color.Black.copy(alpha = 0.5f)
@@ -519,7 +559,7 @@ fun DashboardScreen(onSignOut: () -> Unit) {
                     }
                 )
             },
-            containerColor = DarkBackground
+            containerColor = MaterialTheme.colorScheme.background
         ) { innerPadding ->
             DashboardContent(
                 modifier = Modifier.padding(innerPadding),
@@ -537,11 +577,14 @@ fun DashboardScreen(onSignOut: () -> Unit) {
 fun SidebarContent(
     onSignOut: () -> Unit,
     selectedItem: String,
-    onItemSelected: (String) -> Unit
+    onItemSelected: (String) -> Unit,
+    isDarkTheme: Boolean,
+    onToggleTheme: () -> Unit
 ) {
     ModalDrawerSheet(
-        drawerContainerColor = DarkBackground,
-        drawerContentColor = TextWhite,
+        drawerContainerColor = MaterialTheme.colorScheme.background,
+        drawerContentColor = MaterialTheme.colorScheme.onBackground,
+        drawerTonalElevation = 0.dp,
         modifier = Modifier.width(300.dp)
     ) {
         Spacer(modifier = Modifier.height(24.dp))
@@ -554,7 +597,8 @@ fun SidebarContent(
             Text(
                 text = "Orbdyn",
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
         Spacer(modifier = Modifier.height(32.dp))
@@ -588,8 +632,8 @@ fun SidebarContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("CATEGORIES", style = MaterialTheme.typography.labelSmall, color = TextGrey, fontWeight = FontWeight.Bold)
-            Icon(Icons.Default.Add, contentDescription = "Add Category", tint = TextGrey, modifier = Modifier.size(16.dp))
+            Text("CATEGORIES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+            Icon(Icons.Default.Add, contentDescription = "Add Category", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -598,24 +642,29 @@ fun SidebarContent(
         Column(
             modifier = Modifier
                 .padding(16.dp)
-                .background(SurfaceDark, RoundedCornerShape(12.dp))
-                .padding(16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(36.dp).background(Color(0xFF374151), CircleShape), contentAlignment = Alignment.Center) {
-                    Text("GC", color = TextWhite, fontWeight = FontWeight.Bold)
+                    Text("GC", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text("Girish Chandwani", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                    Text("girish@meensou.com", style = MaterialTheme.typography.bodySmall, color = TextGrey)
+                    Text("girish@meensou.com", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { }) {
-                Icon(Icons.Outlined.DarkMode, contentDescription = null, tint = TextGrey)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onToggleTheme() }) {
+                Icon(
+                    imageVector = if (isDarkTheme) Icons.Outlined.DarkMode else Icons.Outlined.WbSunny,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(modifier = Modifier.width(12.dp))
-                Text("Dark Mode", color = TextGrey)
+                Text(
+                    text = if (isDarkTheme) "Dark Mode" else "Light Mode",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             Spacer(modifier = Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onSignOut() }) {
@@ -632,20 +681,23 @@ fun SidebarItem(
     icon: ImageVector,
     label: String,
     isSelected: Boolean,
-    iconColor: Color = TextGrey,
-    textColor: Color = TextGrey,
+    iconColor: Color = Color.Unspecified,
+    textColor: Color = Color.Unspecified,
     onClick: () -> Unit
 ) {
+    val finalIconColor = if (iconColor != Color.Unspecified) iconColor else MaterialTheme.colorScheme.onSurfaceVariant
+    val finalTextColor = if (textColor != Color.Unspecified) textColor else MaterialTheme.colorScheme.onSurfaceVariant
+
     NavigationDrawerItem(
-        icon = { Icon(icon, contentDescription = null, tint = if (isSelected) PrimaryBlue else iconColor) },
+        icon = { Icon(icon, contentDescription = null, tint = if (isSelected) PrimaryBlue else finalIconColor) },
         label = { Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
         selected = isSelected,
         onClick = onClick,
         colors = NavigationDrawerItemDefaults.colors(
-            selectedContainerColor = Color(0xFF111827),
+            selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant, // Use semantic color
             selectedTextColor = PrimaryBlue,
             unselectedContainerColor = Color.Transparent,
-            unselectedTextColor = textColor
+            unselectedTextColor = finalTextColor
         ),
         modifier = Modifier.padding(horizontal = 12.dp)
     )
@@ -667,9 +719,9 @@ fun DashboardTopBar(onMenuClick: () -> Unit, onAddClick: () -> Unit) {
                 onClick = onMenuClick,
                 modifier = Modifier
                     .padding(start = 8.dp)
-                    .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
             ) {
-                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = TextWhite)
+                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = MaterialTheme.colorScheme.onBackground)
             }
         },
         actions = {
@@ -686,9 +738,9 @@ fun DashboardTopBar(onMenuClick: () -> Unit, onAddClick: () -> Unit) {
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = DarkBackground,
-            titleContentColor = TextWhite,
-            actionIconContentColor = TextWhite
+            containerColor = MaterialTheme.colorScheme.background,
+            titleContentColor = MaterialTheme.colorScheme.onBackground,
+            actionIconContentColor = MaterialTheme.colorScheme.onBackground
         )
     )
 }
@@ -714,33 +766,35 @@ fun DashboardContent(
         OutlinedTextField(
             value = "",
             onValueChange = {},
-            placeholder = { Text("Search $title...", color = Color(0xFF6B7280)) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF6B7280)) },
-            trailingIcon = { Icon(Icons.Default.FilterList, contentDescription = null, tint = Color(0xFF6B7280)) },
+            placeholder = { Text("Search $title...", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            trailingIcon = { Icon(Icons.Default.FilterList, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = SurfaceDark,
-                unfocusedContainerColor = SurfaceDark,
-                focusedBorderColor = BorderColor,
-                unfocusedBorderColor = BorderColor,
-                cursorColor = PrimaryBlue
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedBorderColor = MaterialTheme.colorScheme.outline,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                cursorColor = PrimaryBlue,
+                focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                unfocusedTextColor = MaterialTheme.colorScheme.onBackground
             )
         )
         Spacer(modifier = Modifier.height(24.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("0 items", style = MaterialTheme.typography.bodySmall, color = TextGrey)
+            Text("0 items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(modifier = Modifier.height(64.dp))
         Column(modifier = Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.size(80.dp).background(SurfaceDark, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(40.dp), tint = Color(0xFF4B5563))
+            Box(modifier = Modifier.size(80.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(modifier = Modifier.height(24.dp))
             Text(emptyText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Start building your journal by adding links, notes, and professional resources.", textAlign = TextAlign.Center, color = TextGrey, modifier = Modifier.padding(horizontal = 32.dp))
+            Text("Start building your journal by adding links, notes, and professional resources.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 32.dp))
             Spacer(modifier = Modifier.height(32.dp))
             
             if (addButtonText.isNotEmpty()) {
@@ -761,8 +815,8 @@ fun AddResourceModal(onDismiss: () -> Unit, initialType: ResourceType = Resource
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = DarkBackground,
-        contentColor = TextWhite,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.fillMaxHeight(0.95f)
     ) {
         AddResourceContent(onDismiss, initialType)
@@ -780,10 +834,10 @@ fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
                 Text("New Resource", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("Capture and organize your vault.", style = MaterialTheme.typography.bodySmall, color = TextGrey)
+                Text("Capture and organize your vault.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(onClick = onDismiss, modifier = Modifier.background(SurfaceDark, CircleShape).size(32.dp)) {
-                Icon(Icons.Default.Close, null, tint = TextGrey, modifier = Modifier.size(16.dp))
+            IconButton(onClick = onDismiss, modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape).size(32.dp)) {
+                Icon(Icons.Default.Close, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -797,8 +851,8 @@ fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType) {
                     modifier = Modifier.weight(1f).height(42.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isSelected) PrimaryBlue else SurfaceDark,
-                        contentColor = if (isSelected) TextWhite else TextGrey
+                        containerColor = if (isSelected) PrimaryBlue else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isSelected) TextWhite else MaterialTheme.colorScheme.onSurfaceVariant
                     ),
                     contentPadding = PaddingValues(0.dp)
                 ) {
@@ -893,7 +947,7 @@ fun PrimaryButton(
 
 @Composable
 fun InputLabel(text: String) {
-    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = TextGrey, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+    Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
 }
 
 @Composable
@@ -902,11 +956,11 @@ fun AssetButton(text: String, icon: ImageVector, modifier: Modifier = Modifier) 
         onClick = {},
         modifier = modifier.height(80.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark, contentColor = TextWhite),
-        border = BorderStroke(1.dp, BorderColor)
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onBackground),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-             Box(modifier = Modifier.size(32.dp).background(InputBackground, CircleShape), contentAlignment = Alignment.Center) {
+             Box(modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) {
                  Icon(icon, null, tint = PrimaryBlue, modifier = Modifier.size(16.dp))
              }
              Spacer(modifier = Modifier.height(8.dp))
@@ -928,20 +982,20 @@ fun CustomInput(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        placeholder = { Text(hint, color = Color(0xFF4B5563)) },
-        leadingIcon = if (icon != null) { { Icon(icon, null, tint = TextGrey) } } else null,
-        trailingIcon = if (trailingIcon != null) { { Icon(trailingIcon, null, tint = TextGrey) } } else null,
+        placeholder = { Text(hint, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) },
+        leadingIcon = if (icon != null) { { Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) } } else null,
+        trailingIcon = if (trailingIcon != null) { { Icon(trailingIcon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) } } else null,
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         singleLine = singleLine,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = InputBackground,
-            unfocusedContainerColor = InputBackground,
-            focusedBorderColor = BorderColor,
-            unfocusedBorderColor = BorderColor,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            focusedBorderColor = MaterialTheme.colorScheme.outline,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
             cursorColor = PrimaryBlue,
-            focusedTextColor = TextWhite,
-            unfocusedTextColor = TextWhite
+            focusedTextColor = MaterialTheme.colorScheme.onBackground,
+            unfocusedTextColor = MaterialTheme.colorScheme.onBackground
         )
     )
 }
