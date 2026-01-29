@@ -481,15 +481,27 @@ fun DashboardScreen(onSignOut: () -> Unit) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showAddResourceModal by remember { mutableStateOf(false) }
+    var selectedDashboardPage by remember { mutableStateOf("All Resources") }
+    var modalInitialType by remember { mutableStateOf(ResourceType.Link) }
 
     if (showAddResourceModal) {
-        AddResourceModal(onDismiss = { showAddResourceModal = false })
+        AddResourceModal(
+            onDismiss = { showAddResourceModal = false },
+            initialType = modalInitialType
+        )
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            SidebarContent(onSignOut = onSignOut)
+            SidebarContent(
+                onSignOut = onSignOut,
+                selectedItem = selectedDashboardPage,
+                onItemSelected = {
+                    selectedDashboardPage = it
+                    scope.launch { drawerState.close() }
+                }
+            )
         },
         scrimColor = Color.Black.copy(alpha = 0.5f)
     ) {
@@ -497,23 +509,36 @@ fun DashboardScreen(onSignOut: () -> Unit) {
             topBar = {
                 DashboardTopBar(
                     onMenuClick = { scope.launch { drawerState.open() } },
-                    onAddClick = { showAddResourceModal = true }
+                    onAddClick = {
+                        modalInitialType = when (selectedDashboardPage) {
+                            "Notes" -> ResourceType.Note
+                            "To Do" -> ResourceType.Todo
+                            else -> ResourceType.Link
+                        }
+                        showAddResourceModal = true
+                    }
                 )
             },
             containerColor = DarkBackground
         ) { innerPadding ->
             DashboardContent(
                 modifier = Modifier.padding(innerPadding),
-                onAddResource = { showAddResourceModal = true }
+                selectedPage = selectedDashboardPage,
+                onAddResource = { type ->
+                    modalInitialType = type
+                    showAddResourceModal = true
+                }
             )
         }
     }
 }
 
 @Composable
-fun SidebarContent(onSignOut: () -> Unit) {
-    var selectedItem by remember { mutableStateOf("All Resources") }
-
+fun SidebarContent(
+    onSignOut: () -> Unit,
+    selectedItem: String,
+    onItemSelected: (String) -> Unit
+) {
     ModalDrawerSheet(
         drawerContainerColor = DarkBackground,
         drawerContentColor = TextWhite,
@@ -535,12 +560,12 @@ fun SidebarContent(onSignOut: () -> Unit) {
         Spacer(modifier = Modifier.height(32.dp))
 
         // Menu Items
-        SidebarItem(Icons.Default.GridView, "All Resources", selectedItem == "All Resources") { selectedItem = "All Resources" }
-        SidebarItem(Icons.Default.Link, "Links", selectedItem == "Links") { selectedItem = "Links" }
-        SidebarItem(Icons.Default.Description, "Notes", selectedItem == "Notes") { selectedItem = "Notes" }
-        SidebarItem(Icons.Default.CheckBox, "To Do", selectedItem == "To Do") { selectedItem = "To Do" }
-        SidebarItem(Icons.Default.StarBorder, "Favorites", selectedItem == "Favorites") { selectedItem = "Favorites" }
-        SidebarItem(Icons.Default.Inventory2, "Archive", selectedItem == "Archive") { selectedItem = "Archive" }
+        SidebarItem(Icons.Default.GridView, "All Resources", selectedItem == "All Resources") { onItemSelected("All Resources") }
+        SidebarItem(Icons.Default.Link, "Links", selectedItem == "Links") { onItemSelected("Links") }
+        SidebarItem(Icons.Default.Description, "Notes", selectedItem == "Notes") { onItemSelected("Notes") }
+        SidebarItem(Icons.Default.CheckBox, "To Do", selectedItem == "To Do") { onItemSelected("To Do") }
+        SidebarItem(Icons.Default.StarBorder, "Favorites", selectedItem == "Favorites") { onItemSelected("Favorites") }
+        SidebarItem(Icons.Default.Inventory2, "Archive", selectedItem == "Archive") { onItemSelected("Archive") }
         
         Spacer(modifier = Modifier.height(16.dp))
         
@@ -550,7 +575,7 @@ fun SidebarContent(onSignOut: () -> Unit) {
             isSelected = selectedItem == "Recycle Bin",
             iconColor = DangerRed,
             textColor = DangerRed,
-            onClick = { selectedItem = "Recycle Bin" }
+            onClick = { onItemSelected("Recycle Bin") }
         )
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -669,12 +694,27 @@ fun DashboardTopBar(onMenuClick: () -> Unit, onAddClick: () -> Unit) {
 }
 
 @Composable
-fun DashboardContent(modifier: Modifier = Modifier, onAddResource: () -> Unit) {
+fun DashboardContent(
+    modifier: Modifier = Modifier,
+    selectedPage: String,
+    onAddResource: (ResourceType) -> Unit
+) {
+    // Determine content based on selectedPage
+    val (title, emptyText, addButtonText, defaultParams) = when (selectedPage) {
+        "Links" -> Quadruple("Links", "No links found", "+ Add Link", ResourceType.Link)
+        "Notes" -> Quadruple("Notes", "No notes found", "+ Add Note", ResourceType.Note)
+        "To Do" -> Quadruple("To Do", "No tasks found", "+ Add Task", ResourceType.Todo)
+        "Favorites" -> Quadruple("Favorites", "No favorites yet", "+ Add Resource", ResourceType.Link)
+        "Archive" -> Quadruple("Archive", "No archived items", "", ResourceType.Link)
+        "Recycle Bin" -> Quadruple("Recycle Bin", "Bin is empty", "", ResourceType.Link)
+        else -> Quadruple("All Resources", "No resources yet", "+ Add Resource", ResourceType.Link)
+    }
+
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         OutlinedTextField(
             value = "",
             onValueChange = {},
-            placeholder = { Text("Search resources...", color = Color(0xFF6B7280)) },
+            placeholder = { Text("Search $title...", color = Color(0xFF6B7280)) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF6B7280)) },
             trailingIcon = { Icon(Icons.Default.FilterList, contentDescription = null, tint = Color(0xFF6B7280)) },
             modifier = Modifier.fillMaxWidth(),
@@ -689,7 +729,7 @@ fun DashboardContent(modifier: Modifier = Modifier, onAddResource: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(24.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("All Resources", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("0 items", style = MaterialTheme.typography.bodySmall, color = TextGrey)
         }
         Spacer(modifier = Modifier.height(64.dp))
@@ -698,19 +738,25 @@ fun DashboardContent(modifier: Modifier = Modifier, onAddResource: () -> Unit) {
                 Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(40.dp), tint = Color(0xFF4B5563))
             }
             Spacer(modifier = Modifier.height(24.dp))
-            Text("No resources yet", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(emptyText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
             Text("Start building your journal by adding links, notes, and professional resources.", textAlign = TextAlign.Center, color = TextGrey, modifier = Modifier.padding(horizontal = 32.dp))
             Spacer(modifier = Modifier.height(32.dp))
-            PrimaryButton(text = "+ Add Resource", onClick = onAddResource)
+            
+            if (addButtonText.isNotEmpty()) {
+                PrimaryButton(text = addButtonText, onClick = { onAddResource(defaultParams) })
+            }
         }
     }
 }
 
+// Simple data holder for the when expression
+data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
 // --- Add Resource Modal (Preserved) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddResourceModal(onDismiss: () -> Unit) {
+fun AddResourceModal(onDismiss: () -> Unit, initialType: ResourceType = ResourceType.Link) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -719,15 +765,15 @@ fun AddResourceModal(onDismiss: () -> Unit) {
         contentColor = TextWhite,
         modifier = Modifier.fillMaxHeight(0.95f)
     ) {
-        AddResourceContent(onDismiss)
+        AddResourceContent(onDismiss, initialType)
     }
 }
 
 enum class ResourceType { Link, Note, Todo }
 
 @Composable
-fun AddResourceContent(onDismiss: () -> Unit) {
-    var selectedType by remember { mutableStateOf(ResourceType.Link) }
+fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType) {
+    var selectedType by remember { mutableStateOf(initialType) }
     
     // Simplify slightly for length, assuming user has previous full version or uses this one
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
