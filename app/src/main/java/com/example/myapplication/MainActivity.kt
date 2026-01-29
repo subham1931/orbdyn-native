@@ -144,7 +144,17 @@ fun AppContent(isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
         mutableStateOf(if (SessionManager.isLoggedIn(context)) Screen.Dashboard else Screen.Onboarding)
     }
     var dashboardPage by remember { mutableStateOf("All Resources") }
-    val categories = remember { mutableStateListOf<Category>() }
+    // Categories
+    val categories = remember { mutableStateListOf<Category>().apply { addAll(PersistenceManager.loadCategories(context)) } }
+    if (categories.isEmpty()) {
+       categories.add(Category("Work", Color(0xFFEF4444)))
+       categories.add(Category("Personal", Color(0xFF3B82F6)))
+       categories.add(Category("Ideas", Color(0xFFA855F7)))
+       PersistenceManager.saveCategories(context, categories)
+    }
+
+    // Resources
+    val resources = remember { mutableStateListOf<Resource>().apply { addAll(PersistenceManager.loadResources(context)) } }
 
     // Wrap everything in a Surface to ensure the background follows the theme
     Surface(
@@ -179,7 +189,18 @@ fun AppContent(isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
                 currentPage = dashboardPage,
                 onPageChanged = { dashboardPage = it },
                 categories = categories,
-                onAddCategory = { categories.add(it) }
+                onAddCategory = { 
+                    categories.add(it) 
+                    PersistenceManager.saveCategories(context, categories)
+                },
+                resources = resources,
+                onAddResource = { 
+                    resources.add(0, it) 
+                    PersistenceManager.saveResources(context, resources)
+                },
+                onResourceUpdated = { 
+                    PersistenceManager.saveResources(context, resources)
+                }
             )
             Screen.Profile -> ProfileScreen(
                 onBack = { currentScreen = Screen.Dashboard },
@@ -193,7 +214,10 @@ fun AppContent(isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
                 },
                 isDarkTheme = isDarkTheme,
                 onToggleTheme = onToggleTheme,
-                onAddCategory = { categories.add(it) },
+                onAddCategory = { 
+                    categories.add(it)
+                    PersistenceManager.saveCategories(context, categories)
+                },
                 categories = categories
             )
         }
@@ -574,7 +598,10 @@ fun DashboardScreen(
     currentPage: String,
     onPageChanged: (String) -> Unit,
     categories: List<Category>,
-    onAddCategory: (Category) -> Unit
+    onAddCategory: (Category) -> Unit,
+    resources: MutableList<Resource>,
+    onAddResource: (Resource) -> Unit,
+    onResourceUpdated: () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -587,7 +614,12 @@ fun DashboardScreen(
         AddResourceModal(
             onDismiss = { showAddResourceModal = false },
             initialType = modalInitialType,
-            categories = categories
+            categories = categories,
+            onCreateCategoryClick = { showCreateCategoryModal = true },
+            onCreateResource = { 
+                onAddResource(it)
+                showAddResourceModal = false
+            }
         )
     }
 
@@ -601,6 +633,49 @@ fun DashboardScreen(
             onCategoryCreated = {
                  onAddCategory(it)
                  showCreateCategoryModal = false
+            }
+        )
+    }
+
+    var selectedResourceForOptions by remember { mutableStateOf<Resource?>(null) }
+    var showResourceOptionsModal by remember { mutableStateOf(false) }
+
+    if (showResourceOptionsModal && selectedResourceForOptions != null) {
+        val resource = selectedResourceForOptions!!
+        ResourceOptionsModal(
+            resource = resource,
+            onDismiss = { showResourceOptionsModal = false },
+            onEdit = { /* TODO: Implement Edit */ showResourceOptionsModal = false },
+            onExport = { /* TODO: Implement Export */ showResourceOptionsModal = false },
+            onShare = { /* TODO: Implement Share */ showResourceOptionsModal = false },
+            onToggleFavorite = {
+                val index = resources.indexOfFirst { it.id == resource.id }
+                if (index != -1) {
+                    resources[index] = resource.copy(isFavorite = !resource.isFavorite)
+                    onResourceUpdated()
+                }
+                showResourceOptionsModal = false
+            },
+            onArchive = {
+                val index = resources.indexOfFirst { it.id == resource.id }
+                if (index != -1) {
+                    resources[index] = resource.copy(isArchived = !resource.isArchived)
+                    onResourceUpdated()
+                }
+                showResourceOptionsModal = false
+            },
+            onDelete = {
+                val index = resources.indexOfFirst { it.id == resource.id }
+                if (index != -1) {
+                    // Start by marking as deleted, if already deleted then remove permanently
+                    if (resource.isDeleted) {
+                        resources.removeAt(index) // Permanent delete
+                    } else {
+                        resources[index] = resource.copy(isDeleted = true)
+                    }
+                    onResourceUpdated()
+                }
+                showResourceOptionsModal = false
             }
         )
     }
@@ -653,11 +728,16 @@ fun DashboardScreen(
             DashboardContent(
                 modifier = Modifier.padding(innerPadding),
                 selectedPage = currentPage,
-                onAddResource = { type ->
+                onAddResourceClick = { type ->
                     modalInitialType = type
                     showAddResourceModal = true
                 },
-                onFilterClick = { showFilterModal = true }
+                onFilterClick = { showFilterModal = true },
+                resources = resources,
+                onResourceOptionsClick = { resource ->
+                    selectedResourceForOptions = resource
+                    showResourceOptionsModal = true
+                }
             )
         }
     }
@@ -868,8 +948,10 @@ fun DashboardTopBar(onMenuClick: () -> Unit, onAddClick: (() -> Unit)? = null) {
 fun DashboardContent(
     modifier: Modifier = Modifier,
     selectedPage: String,
-    onAddResource: (ResourceType) -> Unit,
-    onFilterClick: () -> Unit
+    onAddResourceClick: (ResourceType) -> Unit,
+    onFilterClick: () -> Unit,
+    resources: List<Resource>,
+    onResourceOptionsClick: (Resource) -> Unit
 ) {
     // Determine content based on selectedPage
     val (title, emptyText, addButtonText, defaultParams) = when (selectedPage) {
@@ -880,6 +962,21 @@ fun DashboardContent(
         "Archive" -> Quadruple("All Archived", "Archive is empty", "", ResourceType.Link)
         "Recycle Bin" -> Quadruple("All Deleted", "Recycle Bin is empty", "", ResourceType.Link)
         else -> Quadruple("All Resources", "No resources yet", "+ Add Resource", ResourceType.Link)
+    }
+
+
+
+    val filteredResources = resources.filter { resource ->
+        when (selectedPage) {
+            "All Resources" -> !resource.isDeleted && !resource.isArchived
+            "Links" -> resource.type == ResourceType.Link && !resource.isDeleted && !resource.isArchived
+            "Notes" -> resource.type == ResourceType.Note && !resource.isDeleted && !resource.isArchived
+            "To Do" -> resource.type == ResourceType.Todo && !resource.isDeleted && !resource.isArchived
+            "Favorites" -> resource.isFavorite && !resource.isDeleted && !resource.isArchived
+            "Archive" -> resource.isArchived && !resource.isDeleted
+            "Recycle Bin" -> resource.isDeleted
+            else -> false // Should not happen based on current navigation logic, but safe fallback
+        }
     }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
@@ -896,7 +993,7 @@ fun DashboardContent(
                     modifier = Modifier.clickable { onFilterClick() } 
                 ) 
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().clickable { /* TODO: Search */ }, // Make field seemingly interactive for now
             shape = RoundedCornerShape(24.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -911,7 +1008,7 @@ fun DashboardContent(
         Spacer(modifier = Modifier.height(24.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("0 items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${filteredResources.size} items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         
         // Banners for Archive and Recycle Bin
@@ -934,31 +1031,54 @@ fun DashboardContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(64.dp))
-        Column(modifier = Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.size(80.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) {
-                val icon = when (selectedPage) {
-                    "Recycle Bin" -> Icons.Default.Delete
-                    "Archive" -> Icons.Default.Inventory2
-                    else -> Icons.Default.FolderOpen
+        if (filteredResources.isEmpty()) {
+            Column(modifier = Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(modifier = Modifier.size(80.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) {
+                    val icon = when (selectedPage) {
+                        "Recycle Bin" -> Icons.Default.Delete
+                        "Archive" -> Icons.Default.Inventory2
+                        else -> Icons.Default.FolderOpen
+                    }
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Icon(icon, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(emptyText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                val desc = when (selectedPage) {
+                    "Recycle Bin" -> "Items you delete will appear here. You can restore them or delete them permanently."
+                    "Archive" -> "Archived resources will appear here. Archive items you want to keep but don't need to see regularly."
+                    else -> "Start building your journal by adding links, notes, and professional resources."
+                }
+                
+                Text(desc, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 32.dp))
+                Spacer(modifier = Modifier.height(32.dp))
+                
+                if (addButtonText.isNotEmpty()) {
+                    PrimaryButton(text = addButtonText, onClick = { onAddResourceClick(defaultParams) })
+                }
             }
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(emptyText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            val desc = when (selectedPage) {
-                "Recycle Bin" -> "Items you delete will appear here. You can restore them or delete them permanently."
-                "Archive" -> "Archived resources will appear here. Archive items you want to keep but don't need to see regularly."
-                else -> "Start building your journal by adding links, notes, and professional resources."
-            }
-            
-            Text(desc, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 32.dp))
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            if (addButtonText.isNotEmpty()) {
-                PrimaryButton(text = addButtonText, onClick = { onAddResource(defaultParams) })
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                 filteredResources.forEach { resource ->
+                     ResourceCard(
+                         resource = resource,
+                         onClick = { /* TODO: Open detail */ },
+                         onFavoriteClick = { 
+                             // Direct toggle from card handled via options modal logic duplication or separate callback?
+                             // For simplicity let's rely on Options Modal for now or add direct callback in next iteration if needed.
+                             // Actually, let's just trigger options or ignore for now as card action 
+                         }, 
+                         onMoreClick = { onResourceOptionsClick(resource) }
+                     )
+                 }
+                 Spacer(modifier = Modifier.height(64.dp)) // Bottom padding
             }
         }
     }
@@ -988,12 +1108,12 @@ fun InfoBanner(text: String, backgroundColor: Color, icon: ImageVector, iconColo
 }
 
 // Simple data holder for the when expression
-data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+// Quadruple removed as it is now in ResourceModels.kt
 
 // --- Add Resource Modal (Preserved) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddResourceModal(onDismiss: () -> Unit, initialType: ResourceType = ResourceType.Link, categories: List<Category>) {
+fun AddResourceModal(onDismiss: () -> Unit, initialType: ResourceType = ResourceType.Link, categories: List<Category>, onCreateCategoryClick: () -> Unit, onCreateResource: (Resource) -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1002,21 +1122,27 @@ fun AddResourceModal(onDismiss: () -> Unit, initialType: ResourceType = Resource
         contentColor = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.fillMaxHeight(0.95f)
     ) {
-        AddResourceContent(onDismiss, initialType, categories)
+        AddResourceContent(onDismiss, initialType, categories, onCreateCategoryClick, onCreateResource)
     }
 }
 
 enum class ResourceType { Link, Note, Todo }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType, categories: List<Category>) {
+fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType, categories: List<Category>, onCreateCategoryClick: () -> Unit, onCreateResource: (Resource) -> Unit) {
     var selectedType by remember { mutableStateOf(initialType) }
     
     var url by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf(if (categories.isNotEmpty()) categories[0].name else "Uncategorized") }
+    var noteContent by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("") }
     var expandedCategory by remember { mutableStateOf(false) }
+    
+    // Todo Specific State
+    var selectedPriority by remember { mutableStateOf("Medium") }
+    var isRepeatReminder by remember { mutableStateOf(false) }
 
     // Simplify slightly for length, assuming user has previous full version or uses this one
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
@@ -1071,48 +1197,171 @@ fun AddResourceContent(onDismiss: () -> Unit, initialType: ResourceType, categor
         CustomInput(value = title, onValueChange = { title = it }, hint = "What is this about?", trailingIcon = Icons.Default.Mic)
         Spacer(modifier = Modifier.height(24.dp))
         
-        // Category Dropdown
-        InputLabel("Category")
-        Box(modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(InputBackground)
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
-            .clickable { expandedCategory = !expandedCategory }
-            .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(selectedCategory, color = TextWhite)
-                Icon(if (expandedCategory) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = TextGrey)
-            }
-            DropdownMenu(
-                expanded = expandedCategory,
-                onDismissRequest = { expandedCategory = false },
-                modifier = Modifier.background(SurfaceDark).fillMaxWidth(0.85f)
-            ) {
-                categories.forEach { category ->
-                    DropdownMenuItem(
-                        text = { Text(category.name, color = TextWhite) },
-                        onClick = {
-                            selectedCategory = category.name
-                            expandedCategory = false
-                        }
-                    )
-                }
-                DropdownMenuItem(text = { Text("Uncategorized", color = TextWhite) }, onClick = { selectedCategory = "Uncategorized"; expandedCategory = false })
-            }
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-
         InputLabel("Description (Optional)")
         CustomInput(value = description, onValueChange = { description = it }, hint = "Brief summary...", singleLine = false, modifier = Modifier.height(80.dp))
         Spacer(modifier = Modifier.height(24.dp))
+
+        if (selectedType == ResourceType.Note) {
+            InputLabel("Content / Detail")
+            CustomInput(
+                value = noteContent, 
+                onValueChange = { noteContent = it }, 
+                hint = "Write down your thoughts...", 
+                singleLine = false, 
+                modifier = Modifier.height(150.dp)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+        } else if (selectedType == ResourceType.Todo) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    InputLabel("Due Date")
+                    Button(
+                        onClick = { /* TODO: Date Picker */ },
+                        modifier = Modifier.fillMaxWidth().height(56.dp).border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = InputBackground, contentColor = TextWhite)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            Text("Set Date", style = MaterialTheme.typography.bodyMedium)
+                            Icon(Icons.Outlined.CalendarToday, null, tint = TextGrey, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    InputLabel("Time")
+                     Button(
+                        onClick = { /* TODO: Time Picker */ },
+                        modifier = Modifier.fillMaxWidth().height(56.dp).border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = InputBackground, contentColor = TextWhite)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            Text("Set Time", style = MaterialTheme.typography.bodyMedium)
+                            Icon(Icons.Outlined.Schedule, null, tint = TextGrey, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            InputLabel("Priority")
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                listOf("Low", "Medium", "High").forEach { priority ->
+                    val isSelected = selectedPriority == priority
+                    val color = when(priority) {
+                        "Low" -> if(isSelected) Color(0xFF6366F1) else Color(0xFF6366F1).copy(alpha = 0.2f)
+                        "Medium" -> if(isSelected) Color(0xFFF59E0B) else Color(0xFFF59E0B).copy(alpha = 0.2f)
+                        "High" -> if(isSelected) Color(0xFFEF4444) else Color(0xFFEF4444).copy(alpha = 0.2f)
+                        else -> Color.Gray
+                    }
+                    Button(
+                        onClick = { selectedPriority = priority },
+                        modifier = Modifier.weight(1f).height(42.dp).border(if(isSelected) 0.dp else 1.dp, if(isSelected) Color.Transparent else BorderColor, RoundedCornerShape(12.dp)),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isSelected) color else InputBackground, contentColor = if (isSelected) Color.White else TextWhite),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(priority, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+             Spacer(modifier = Modifier.height(24.dp))
+             
+             Box(modifier = Modifier.fillMaxWidth().background(InputBackground, RoundedCornerShape(12.dp)).border(1.dp, BorderColor, RoundedCornerShape(12.dp)).padding(16.dp)) {
+                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                     Row(verticalAlignment = Alignment.CenterVertically) {
+                         Box(modifier = Modifier.size(32.dp).background(PrimaryBlue.copy(alpha = 0.2f), CircleShape), contentAlignment = Alignment.Center) {
+                             Icon(Icons.Outlined.Notifications, null, tint = PrimaryBlue, modifier = Modifier.size(18.dp))
+                         }
+                         Spacer(modifier = Modifier.width(12.dp))
+                         Column {
+                             Text("Repeat Reminder", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = TextWhite)
+                             Text("Get notifications for this task", style = MaterialTheme.typography.bodySmall, color = TextGrey)
+                         }
+                     }
+                     Switch(
+                         checked = isRepeatReminder, 
+                         onCheckedChange = { isRepeatReminder = it },
+                         colors = SwitchDefaults.colors(
+                             checkedThumbColor = TextWhite,
+                             checkedTrackColor = PrimaryBlue,
+                             uncheckedThumbColor = TextGrey,
+                             uncheckedTrackColor = InputBackground.copy(alpha = 0.5f),
+                             uncheckedBorderColor = BorderColor
+                         )
+                     )
+                 }
+             }
+             Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        // Add Assets & Local Files (Common for Note and Todo, maybe Link too? Screenshot shows it for Note and Todo)
+        if (selectedType != ResourceType.Link) {
+             InputLabel("Add Assets")
+             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                 AssetButton("Add Images", Icons.Default.Add, Modifier.weight(1f))
+                 AssetButton("Add Files", Icons.Default.AttachFile, Modifier.weight(1f))
+             }
+             Spacer(modifier = Modifier.height(24.dp))
+
+             InputLabel("Local Files")
+             Column(
+                 modifier = Modifier
+                     .fillMaxWidth()
+                     .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+                     .background(InputBackground.copy(alpha=0.5f), RoundedCornerShape(12.dp))
+                     .padding(12.dp)
+             ) {
+                 Row(verticalAlignment = Alignment.CenterVertically) {
+                     Icon(Icons.Default.Folder, null, tint = Color(0xFFF59E0B), modifier = Modifier.size(24.dp))
+                     Spacer(modifier = Modifier.width(12.dp))
+                     Button(
+                         onClick = {}, 
+                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF374151)), 
+                         shape = RoundedCornerShape(8.dp), 
+                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), 
+                         modifier = Modifier.height(32.dp)
+                     ) {
+                         Text("Choose Files", style = MaterialTheme.typography.bodySmall, color = Color(0xFFF59E0B))
+                     }
+                     Spacer(modifier = Modifier.width(12.dp))
+                     Text("No file chosen", style = MaterialTheme.typography.bodySmall, color = TextGrey)
+                 }
+                 Spacer(modifier = Modifier.height(8.dp))
+                 Text(
+                     "These files are stored locally on your device, not uploaded to cloud.\nOnly visible on this device.", 
+                     style = MaterialTheme.typography.labelSmall, 
+                     color = Color(0xFFF59E0B), 
+                     fontSize = 10.sp, 
+                     lineHeight = 12.sp
+                 )
+             }
+             Spacer(modifier = Modifier.height(24.dp))
+        }
         
+        CategorySelector(
+            categories = categories,
+            selectedCategory = selectedCategory,
+            onCategorySelected = { selectedCategory = it },
+            onCreateCategoryClick = onCreateCategoryClick
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
         PrimaryButton("Create Resource", onClick = {
-            // TODO: Handle creation logic with title, url, description, selectedCategory
-            onDismiss()
+            val newResource = Resource(
+                type = selectedType,
+                title = title,
+                description = description,
+                category = if (selectedCategory.isNotEmpty()) selectedCategory else null,
+                url = if (selectedType == ResourceType.Link) url else null,
+                content = if (selectedType == ResourceType.Note) noteContent else null,
+                dueDate = if (selectedType == ResourceType.Todo) "Jan 31, 2026" else null, // Placeholder date, logic needs DatePicker
+                time = if (selectedType == ResourceType.Todo) "10:00 AM" else null, // Placeholder time
+                priority = if (selectedType == ResourceType.Todo) selectedPriority else null,
+                isRepeatReminder = isRepeatReminder,
+                assetCount = if (selectedType != ResourceType.Link) 1 else 0 // Placeholder count
+            )
+            onCreateResource(newResource)
         })
         Spacer(modifier = Modifier.height(32.dp))
     }
@@ -1478,6 +1727,82 @@ fun FilterSortModal(onDismiss: () -> Unit) {
                 }
             }
             Spacer(modifier = Modifier.height(48.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CategorySelector(
+    categories: List<Category>,
+    selectedCategory: String,
+    onCategorySelected: (String) -> Unit,
+    onCreateCategoryClick: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    InputLabel("Category (Optional)")
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        Box(modifier = Modifier
+            .menuAnchor()
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(InputBackground)
+            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (selectedCategory.isNotEmpty()) selectedCategory else "Select Category (Optional)",
+                    color = if (selectedCategory.isNotEmpty()) TextWhite else TextGrey
+                )
+                Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, tint = TextGrey)
+            }
+        }
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(SurfaceDark)
+        ) {
+            categories.forEach { category ->
+                DropdownMenuItem(
+                    text = { 
+                        val isSelected = selectedCategory == category.name
+                        Text(
+                            category.name, 
+                            color = if (isSelected) PrimaryBlue else TextWhite,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        ) 
+                    },
+                    onClick = {
+                        if (selectedCategory == category.name) {
+                            onCategorySelected("")
+                        } else {
+                            onCategorySelected(category.name)
+                        }
+                        expanded = false
+                    }
+                )
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            DropdownMenuItem(
+                text = { 
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp), tint = PrimaryBlue)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Create New Category", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+                    }
+                }, 
+                onClick = { 
+                    onCreateCategoryClick()
+                    expanded = false 
+                }
+            )
         }
     }
 }
