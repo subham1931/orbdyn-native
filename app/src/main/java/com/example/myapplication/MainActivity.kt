@@ -114,12 +114,13 @@ class MainActivity : ComponentActivity() {
 
 // --- Navigation State ---
 enum class Screen {
-    Onboarding, SignIn, SignUp, Dashboard
+    Onboarding, SignIn, SignUp, Dashboard, Profile
 }
 
 @Composable
 fun AppContent(isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
     var currentScreen by remember { mutableStateOf(Screen.Onboarding) }
+    var dashboardPage by remember { mutableStateOf("All Resources") }
 
     // Wrap everything in a Surface to ensure the background follows the theme
     Surface(
@@ -142,6 +143,19 @@ fun AppContent(isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
             )
             Screen.Dashboard -> DashboardScreen(
                 onSignOut = { currentScreen = Screen.SignIn },
+                onProfileClick = { currentScreen = Screen.Profile },
+                isDarkTheme = isDarkTheme,
+                onToggleTheme = onToggleTheme,
+                currentPage = dashboardPage,
+                onPageChanged = { dashboardPage = it }
+            )
+            Screen.Profile -> ProfileScreen(
+                onBack = { currentScreen = Screen.Dashboard },
+                onSignOut = { currentScreen = Screen.SignIn },
+                onNavigateToDashboard = { page ->
+                    dashboardPage = page
+                    currentScreen = Screen.Dashboard
+                },
                 isDarkTheme = isDarkTheme,
                 onToggleTheme = onToggleTheme
             )
@@ -515,11 +529,19 @@ fun AuthInput(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardScreen(onSignOut: () -> Unit, isDarkTheme: Boolean, onToggleTheme: () -> Unit) {
+fun DashboardScreen(
+    onSignOut: () -> Unit,
+    onProfileClick: () -> Unit,
+    isDarkTheme: Boolean,
+    onToggleTheme: () -> Unit,
+    currentPage: String,
+    onPageChanged: (String) -> Unit
+) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showAddResourceModal by remember { mutableStateOf(false) }
-    var selectedDashboardPage by remember { mutableStateOf("All Resources") }
+    var showFilterModal by remember { mutableStateOf(false) }
+    var showCreateCategoryModal by remember { mutableStateOf(false) }
     var modalInitialType by remember { mutableStateOf(ResourceType.Link) }
 
     if (showAddResourceModal) {
@@ -529,15 +551,28 @@ fun DashboardScreen(onSignOut: () -> Unit, isDarkTheme: Boolean, onToggleTheme: 
         )
     }
 
+    if (showFilterModal) {
+        FilterSortModal(onDismiss = { showFilterModal = false })
+    }
+
+    if (showCreateCategoryModal) {
+        CreateCategoryModal(onDismiss = { showCreateCategoryModal = false })
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             SidebarContent(
                 onSignOut = onSignOut,
-                selectedItem = selectedDashboardPage,
+                selectedItem = currentPage,
                 onItemSelected = {
-                    selectedDashboardPage = it
+                    onPageChanged(it)
                     scope.launch { drawerState.close() }
+                },
+                onProfileClick = onProfileClick,
+                onCreateCategory = {
+                    scope.launch { drawerState.close() }
+                    showCreateCategoryModal = true
                 },
                 isDarkTheme = isDarkTheme,
                 onToggleTheme = onToggleTheme
@@ -547,27 +582,35 @@ fun DashboardScreen(onSignOut: () -> Unit, isDarkTheme: Boolean, onToggleTheme: 
     ) {
         Scaffold(
             topBar = {
+                val addButtonAction: (() -> Unit)? = when (currentPage) {
+                    "Favorites", "Archive", "Recycle Bin" -> null
+                    else -> {
+                        {
+                            modalInitialType = when (currentPage) {
+                                "Notes" -> ResourceType.Note
+                                "To Do" -> ResourceType.Todo
+                                else -> ResourceType.Link
+                            }
+                            showAddResourceModal = true
+                        }
+                    }
+                }
+                
                 DashboardTopBar(
                     onMenuClick = { scope.launch { drawerState.open() } },
-                    onAddClick = {
-                        modalInitialType = when (selectedDashboardPage) {
-                            "Notes" -> ResourceType.Note
-                            "To Do" -> ResourceType.Todo
-                            else -> ResourceType.Link
-                        }
-                        showAddResourceModal = true
-                    }
+                    onAddClick = addButtonAction
                 )
             },
             containerColor = MaterialTheme.colorScheme.background
         ) { innerPadding ->
             DashboardContent(
                 modifier = Modifier.padding(innerPadding),
-                selectedPage = selectedDashboardPage,
+                selectedPage = currentPage,
                 onAddResource = { type ->
                     modalInitialType = type
                     showAddResourceModal = true
-                }
+                },
+                onFilterClick = { showFilterModal = true }
             )
         }
     }
@@ -578,6 +621,8 @@ fun SidebarContent(
     onSignOut: () -> Unit,
     selectedItem: String,
     onItemSelected: (String) -> Unit,
+    onProfileClick: () -> Unit,
+    onCreateCategory: () -> Unit,
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit
 ) {
@@ -633,7 +678,12 @@ fun SidebarContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("CATEGORIES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
-            Icon(Icons.Default.Add, contentDescription = "Add Category", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Icon(
+                Icons.Default.Add,
+                contentDescription = "Add Category",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp).clickable { onCreateCategory() }
+            )
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -643,7 +693,10 @@ fun SidebarContent(
             modifier = Modifier
                 .padding(16.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { onProfileClick() }
+            ) {
                 Box(modifier = Modifier.size(36.dp).background(Color(0xFF374151), CircleShape), contentAlignment = Alignment.Center) {
                     Text("GC", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
                 }
@@ -705,7 +758,7 @@ fun SidebarItem(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DashboardTopBar(onMenuClick: () -> Unit, onAddClick: () -> Unit) {
+fun DashboardTopBar(onMenuClick: () -> Unit, onAddClick: (() -> Unit)? = null) {
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -725,16 +778,18 @@ fun DashboardTopBar(onMenuClick: () -> Unit, onAddClick: () -> Unit) {
             }
         },
         actions = {
-            Button(
-                onClick = onAddClick,
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                modifier = Modifier.height(36.dp).padding(end = 8.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Add", fontSize = 14.sp)
+            if (onAddClick != null) {
+                Button(
+                    onClick = onAddClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    modifier = Modifier.height(36.dp).padding(end = 8.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add", fontSize = 14.sp)
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -749,16 +804,17 @@ fun DashboardTopBar(onMenuClick: () -> Unit, onAddClick: () -> Unit) {
 fun DashboardContent(
     modifier: Modifier = Modifier,
     selectedPage: String,
-    onAddResource: (ResourceType) -> Unit
+    onAddResource: (ResourceType) -> Unit,
+    onFilterClick: () -> Unit
 ) {
     // Determine content based on selectedPage
     val (title, emptyText, addButtonText, defaultParams) = when (selectedPage) {
         "Links" -> Quadruple("Links", "No links found", "+ Add Link", ResourceType.Link)
         "Notes" -> Quadruple("Notes", "No notes found", "+ Add Note", ResourceType.Note)
         "To Do" -> Quadruple("To Do", "No tasks found", "+ Add Task", ResourceType.Todo)
-        "Favorites" -> Quadruple("Favorites", "No favorites yet", "+ Add Resource", ResourceType.Link)
-        "Archive" -> Quadruple("Archive", "No archived items", "", ResourceType.Link)
-        "Recycle Bin" -> Quadruple("Recycle Bin", "Bin is empty", "", ResourceType.Link)
+        "Favorites" -> Quadruple("Favorites", "No favorites yet", "", ResourceType.Link)
+        "Archive" -> Quadruple("All Archived", "Archive is empty", "", ResourceType.Link)
+        "Recycle Bin" -> Quadruple("All Deleted", "Recycle Bin is empty", "", ResourceType.Link)
         else -> Quadruple("All Resources", "No resources yet", "+ Add Resource", ResourceType.Link)
     }
 
@@ -768,7 +824,14 @@ fun DashboardContent(
             onValueChange = {},
             placeholder = { Text("Search $title...", color = MaterialTheme.colorScheme.onSurfaceVariant) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            trailingIcon = { Icon(Icons.Default.FilterList, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            trailingIcon = { 
+                Icon(
+                    Icons.Default.FilterList, 
+                    contentDescription = null, 
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clickable { onFilterClick() } 
+                ) 
+            },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
             colors = OutlinedTextFieldDefaults.colors(
@@ -786,21 +849,77 @@ fun DashboardContent(
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("0 items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        
+        // Banners for Archive and Recycle Bin
+        if (selectedPage == "Recycle Bin") {
+            Spacer(modifier = Modifier.height(16.dp))
+            InfoBanner(
+                text = "Items in the bin are hidden from your collection\nRestored items will return to their original location",
+                backgroundColor = Color(0xFF3B1214), // Dark Red
+                icon = Icons.Default.Info,
+                iconColor = Color(0xFFEF4444)
+            )
+        }
+        if (selectedPage == "Archive") {
+            Spacer(modifier = Modifier.height(16.dp))
+            InfoBanner(
+                text = "Archived resources are hidden from your main view\nUnarchive items to make them visible again in your collection",
+                backgroundColor = Color(0xFF331E12), // Dark Orange
+                icon = Icons.Default.Inventory2,
+                iconColor = Color(0xFFF59E0B)
+            )
+        }
+
         Spacer(modifier = Modifier.height(64.dp))
         Column(modifier = Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(modifier = Modifier.size(80.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                val icon = when (selectedPage) {
+                    "Recycle Bin" -> Icons.Default.Delete
+                    "Archive" -> Icons.Default.Inventory2
+                    else -> Icons.Default.FolderOpen
+                }
+                Icon(icon, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(modifier = Modifier.height(24.dp))
             Text(emptyText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Start building your journal by adding links, notes, and professional resources.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 32.dp))
+            
+            val desc = when (selectedPage) {
+                "Recycle Bin" -> "Items you delete will appear here. You can restore them or delete them permanently."
+                "Archive" -> "Archived resources will appear here. Archive items you want to keep but don't need to see regularly."
+                else -> "Start building your journal by adding links, notes, and professional resources."
+            }
+            
+            Text(desc, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 32.dp))
             Spacer(modifier = Modifier.height(32.dp))
             
             if (addButtonText.isNotEmpty()) {
                 PrimaryButton(text = addButtonText, onClick = { onAddResource(defaultParams) })
             }
         }
+    }
+}
+
+@Composable
+fun InfoBanner(text: String, backgroundColor: Color, icon: ImageVector, iconColor: Color) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(backgroundColor, RoundedCornerShape(12.dp))
+            .border(1.dp, iconColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .background(iconColor.copy(alpha = 0.2f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE5E7EB), lineHeight = 18.sp)
     }
 }
 
@@ -998,4 +1117,332 @@ fun CustomInput(
             unfocusedTextColor = MaterialTheme.colorScheme.onBackground
         )
     )
+}
+
+// --- New Screens and Modals ---
+
+@Composable
+fun ProfileScreen(
+    onBack: () -> Unit,
+    onSignOut: () -> Unit,
+    onNavigateToDashboard: (String) -> Unit,
+    isDarkTheme: Boolean,
+    onToggleTheme: () -> Unit
+) {
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    var showCreateCategoryModal by remember { mutableStateOf(false) }
+
+    if (showCreateCategoryModal) {
+        CreateCategoryModal(onDismiss = { showCreateCategoryModal = false })
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            SidebarContent(
+                onSignOut = onSignOut,
+                selectedItem = "", // Nothing selected in sidebar when on profile
+                onItemSelected = {
+                    onNavigateToDashboard(it)
+                    scope.launch { drawerState.close() }
+                },
+                onProfileClick = { scope.launch { drawerState.close() } }, // Already on profile
+                onCreateCategory = {
+                    scope.launch { drawerState.close() }
+                    showCreateCategoryModal = true
+                },
+                isDarkTheme = isDarkTheme,
+                onToggleTheme = onToggleTheme
+            )
+        },
+        scrimColor = Color.Black.copy(alpha = 0.5f)
+    ) {
+        Scaffold(
+            topBar = {
+                DashboardTopBar(
+                    onMenuClick = { scope.launch { drawerState.open() } },
+                    onAddClick = null
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.background
+        ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            // Profile Avatar Large
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+           Column(horizontalAlignment = Alignment.CenterHorizontally) {
+               Box(
+                   modifier = Modifier
+                       .size(100.dp)
+                       .background(Color(0xFF22D3EE), CircleShape), // Cyan color from screenshot
+                   contentAlignment = Alignment.Center
+               ) {
+                   Text("GC", style = MaterialTheme.typography.displayMedium, color = Color.Black, fontWeight = FontWeight.Bold)
+               }
+               Spacer(modifier = Modifier.height(24.dp))
+               Text("Girish Chandwani", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+               Text("girish@meensou.com", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+               Spacer(modifier = Modifier.height(24.dp))
+               Button(
+                   onClick = {},
+                   colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onBackground),
+                   shape = RoundedCornerShape(12.dp),
+                   border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+               ) {
+                   Icon(Icons.Outlined.Edit, null, modifier = Modifier.size(16.dp))
+                   Spacer(modifier = Modifier.width(8.dp))
+                   Text("Edit Profile")
+               }
+           }
+        }
+        
+        Spacer(modifier = Modifier.height(48.dp))
+
+        // Account Details Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background), // Using background color for card to blend or surface if needed. Screenshot looks like it blends or is slightly lighter/darker. Let's use surfaceVariant for card background in dark mode context usually, but screenshot shows it dark. 
+            // In screenshot, card is slightly lighter than background (070C18 vs 020610). 
+            // We'll use a custom color for dark mode fidelity if needed, or Surface.
+             modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
+             shape = RoundedCornerShape(24.dp)
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Person, null, tint = PrimaryBlue, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Account Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                        Text("Manage your identity", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                InputLabel("FULL NAME")
+                OutlinedTextField(
+                    value = "Girish Chandwani",
+                    onValueChange = {},
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledTextColor = MaterialTheme.colorScheme.onBackground,
+                        disabledBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                InputLabel("EMAIL ADDRESS")
+                OutlinedTextField(
+                    value = "girish@meensou.com",
+                    onValueChange = {},
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledTextColor = MaterialTheme.colorScheme.onBackground,
+                        disabledBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("* Email cannot be changed for security reasons", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        Button(
+            onClick = onSignOut,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(28.dp), // Pill shape
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C0B15), contentColor = DangerRed),
+            border = BorderStroke(1.dp, DangerRed.copy(alpha = 0.3f))
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ExitToApp, null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Sign Out Account", fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FilterSortModal(onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = DarkBackground,
+        contentColor = TextWhite
+    ) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Filter & Sort", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Done", color = PrimaryBlue, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onDismiss() })
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text("CUSTOM ORDER", style = MaterialTheme.typography.labelSmall, color = TextGrey, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            val options = listOf("Title (A-Z)", "Title (Z-A)", "Date Created (Newest)", "Date Created (Oldest)", "Favorites First")
+            var selectedOption by remember { mutableStateOf("Date Created (Newest)") }
+            
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+            ) {
+                options.forEachIndexed { index, option ->
+                    val isSelected = selectedOption == option
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (isSelected) Color(0xFF0F1C30) else SurfaceDark)
+                            .clickable { selectedOption = option }
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(option, color = if (isSelected) PrimaryBlue else TextWhite, fontWeight = if(isSelected) FontWeight.Bold else FontWeight.Normal)
+                        if (isSelected) {
+                            Icon(Icons.Default.Check, null, tint = PrimaryBlue, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    if (index < options.size - 1) {
+                        HorizontalDivider(color = BorderColor, thickness = 1.dp)
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("BY CATEGORY", style = MaterialTheme.typography.labelSmall, color = TextGrey, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = {},
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("All Categories")
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("DATE RANGE", style = MaterialTheme.typography.labelSmall, color = TextGrey, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(modifier = Modifier.weight(1f).height(50.dp).border(1.dp, BorderColor, RoundedCornerShape(12.dp)).padding(12.dp), contentAlignment = Alignment.CenterStart) {
+                     Row(verticalAlignment = Alignment.CenterVertically) {
+                         Text("mm/dd/yyyy", color = TextGrey)
+                         Spacer(modifier = Modifier.weight(1f))
+                         Icon(Icons.Default.DateRange, null, tint = TextGrey)
+                     }
+                }
+                 Box(modifier = Modifier.weight(1f).height(50.dp).border(1.dp, BorderColor, RoundedCornerShape(12.dp)).padding(12.dp), contentAlignment = Alignment.CenterStart) {
+                     Row(verticalAlignment = Alignment.CenterVertically) {
+                         Text("mm/dd/yyyy", color = TextGrey)
+                         Spacer(modifier = Modifier.weight(1f))
+                         Icon(Icons.Default.DateRange, null, tint = TextGrey)
+                     }
+                }
+            }
+            Spacer(modifier = Modifier.height(48.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CreateCategoryModal(onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = DarkBackground,
+        contentColor = TextWhite
+    ) {
+         Column(modifier = Modifier.padding(24.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("New Category", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onDismiss, modifier = Modifier.background(SurfaceDark, CircleShape).size(32.dp)) {
+                    Icon(Icons.Default.Close, null, tint = TextGrey, modifier = Modifier.size(16.dp))
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            InputLabel("CATEGORY NAME")
+            CustomInput(value = "", onValueChange = {}, hint = "e.g., Work, Personal, Ideas")
+            Spacer(modifier = Modifier.height(24.dp))
+            InputLabel("THEME COLOR")
+            
+            val colors = listOf(Color(0xFFF97316), Color(0xFFEF4444), Color(0xFF22C55E), Color(0xFF3B82F6), Color(0xFFA855F7), Color(0xFFE879F9), Color(0xFF06B6D4), Color(0xFFEAB308))
+            var selectedColor by remember { mutableStateOf(colors[0]) }
+            
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                colors.take(4).forEach { color ->
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(color, RoundedCornerShape(12.dp))
+                            .clickable { selectedColor = color },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedColor == color) {
+                            Icon(Icons.Default.Check, null, tint = Color.White)
+                        }
+                    }
+                }
+            }
+             Spacer(modifier = Modifier.height(12.dp))
+             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                colors.takeLast(4).forEach { color ->
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(color, RoundedCornerShape(12.dp))
+                            .clickable { selectedColor = color },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedColor == color) {
+                            Icon(Icons.Default.Check, null, tint = Color.White)
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(150.dp))
+            
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Button(
+                    onClick = onDismiss,
+                     modifier = Modifier.weight(1f).height(56.dp),
+                     colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                ) {
+                    Text("Cancel", fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = onDismiss,
+                     modifier = Modifier.weight(1f).height(56.dp),
+                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1B4B), contentColor = PrimaryBlue),
+                     shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Create Category", fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+         }
+    }
 }
